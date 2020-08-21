@@ -5,31 +5,43 @@ import gi
 import cairo
 
 gi.require_version("Gst", "1.0")
+gi.require_foreign('cairo')
+gi.require_version('Gtk', '3.0')
 from gi.repository import Gst, GObject
 
 
-BOX_SIZE = 4
-LABEL_SIZE = 91
-DETECTION_MAX = 100
-
-MAX_OBJECT_DETECTION = 5
-
 class NNStreamerExample : 
     """NNStreamer example for object dectection"""
-
+ 
     def __init__(self, argv=None):
         self.loop = None
-        self.pipline = None
+        self.pipeline = None
         self.running = False
-        self.current_label_index= -1
+
+        self.current_label_index = -1
         self.new_label_index = -1
+
+        #model
         self.tf_model = ""
         self.tf_labels = []
 
+        #output names
+        self.num_detections = 0.0
+        self.detection_classes = 0.0
+        self.detection_scores = 0.0
+        self.detection_boxes = 0.0
+
+        #drawing
+        self.x = 0
+        self.y = 0
+        self.width = 0
+        self.height = 0
+        self.class_id = 0
+        self.prob = 0.0
+    
         if not self.tf_init():
             raise Exception
 
-            
         GObject.threads_init()
         Gst.init(argv)
     
@@ -43,32 +55,47 @@ class NNStreamerExample :
         self.loop = GObject.MainLoop()
 
         # init pipline
-        self.pipline = Gst.parse_launch(          
-            "v4l2src name=src ! videoconvert ! videoscale ! video/x-raw,width=640,height=480,format=RGB ! queue leaky=2 max-size-buffers=2 ! videoscale ! tensor_converter ! "
+        self.pipeline = Gst.parse_launch( 
+             "v4l2src name=src ! videoconvert ! videoscale ! video/x-raw,width=640,height=480,format=RGB ! tee name=t_raw "
+            "t_raw. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor "
+            "t_raw. ! queue leaky=2 max-size-buffers=2 ! videoscale ! tensor_converter ! "
             "tensor_filter framework=tensorflow model="+self.tf_model+
-            " input=3:640:480:1 inputname=image_tensor inputtype=uint8"
-            "output=1,100:1,100:1,4:100:1 "
-            "outputtype=float32,float32,float32,float32 ! "
-            "tensor_sink name=tensor_sink"
+            " ! tensor_sink name=tensor_sink "   
         )
 
+        #"t_raw. ! queue leaky=2 max-size-buffers=2 ! videoscale ! tensor_converter ! "
+            #"tensor_filter framework=tensorflow model="+self.tf_model+ 
+            #"tensor_sink name=tensor_sink "
+        #"input=3:640:480:1 inputname=image_tensor inputtype=uint8 "
+        #"output=1,100:1,100:1,4:100:1 "
+        #"outputname=num_detections,detection_classes,detection_scores,detection_boxes "
+        #"outputtype=float32,float32,float32,float32 ! "
+       
+
         #bus and message callback
-        bus = self.pipline.get_bus()
+        bus = self.pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect('message', self.on_bus_message)
 
+        #tensor sink signal : new data callbaack
+        tensor_sink = self.pipeline.get_by_name('tensor_sink')
+        tensor_sink.connect('new-data', self.new_data_cb)
 
-        #tensor sink signal : new data callback
-        tensor_sink = self.pipline.get_by_name('tensor_sink')
-        tensor_sink.connect('new-data', self.on_new_data)
+        #cario overlay
+        cairo_overlay = self.pipeline.get_by_name('tensor_res')
+        cairo_overlay.connect('draw', self.draw_overlay_cb)
+        #cario_overlay.connect('caps-change', self.prepare_overlay_cb)
+
 
         #timer to update result
-        GOBject.timeout_add(500, self.on_timer_update_result)
+        GObject.timeout_add(500, self.on_timer_update_result)
+
 
         #start pipeline
         self.pipeline.set_state(Gst.State.PLAYING)
         self.running = True
-        
+
+
         #Set window title
         self.set_window_title("img_tensor","NNStreamer Example")
 
@@ -77,7 +104,7 @@ class NNStreamerExample :
 
         #quit when received eos or error message
         self.running = False
-        self.pipline.set_state(Gst.State.NULL)
+        self.pipeline.set_state(Gst.State.NULL)
 
 
         bus.remove_signal_watch()
@@ -93,28 +120,47 @@ class NNStreamerExample :
         if message.type == Gst.MessageType.EOS:
             logging.info('received eos message')
             self.loop.quit()
-        elif message.tpye == Gst.MessageType.ERROR:
+        elif message.type == Gst.MessageType.ERROR:
             error, debug = message.parse_error()
             logging.warning('[error] %s : %s', error.message, debug)
             self.loop.quit()
         elif message.type == Gst.MessageType.WARNING:
             error, debug = message.parse_warning()
-            logging.warning('[warning] %s:%s',error.message, debug)
+            logging.warning('[warning] %s : %s',error.message, debug)
+            
         elif message.type == Gst.MessageType.STREAM_START:
             logging.info('recesived start message')
+
         elif message.type == Gst.MessageType.QOS:
             data_format, processed, dropped = message.parse_qos_stats()
             format_str = Gst.Format.get_name(data_format)
             logging.debug('[qos] format[%s] processed[%d] dropped[%d]', format_str, processed, dropped)
 
 
-    def on_new_data(self, sink, buffer):
-        """Callback for tensor sink signal.
+    def draw_overlay_cb(self, _overlay, context, _timestamp, _duration, user_data):
+        context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        context.set_font_size(40)
+        context.move_to(100,100)
+        context.text_path('HELLO')
+        context.set_source_rgb(0.5, 0.5, 1)
+        context.fill_preserve()
+        context.set_source_rgb(0,0,0)
+        context.set_line_width(1)
+        context.stroke()
 
-        :param sink: tensor sink elemnet
-        :param buffer: buffer from element
-        :return: None 
-        """
+
+    
+    def new_data_cb(self, buffer):
+       
+        #num_detections
+        #mem_num = buffer.get_memory()
+        #result, info_num = mem_num.map(Gst.MapFlag.READ)
+        #if(info_num.size != 4):
+        #    self.num_detections=info_num.data
+       
+        #detection_classes
+        #mem_classes = gst
+
         if self.running:
             for idx in range(buffer.n_memory()):
                 mem = buffer.peek_memory(idx)
@@ -122,20 +168,12 @@ class NNStreamerExample :
                 if result:
                     self.update_top_label_index(mapinfo.data, mapinfo.size)
                     mem.unmap(mapinfo)
-    
-    def on_timer_update_result(self):
-        """Timer callback for textoverlay.
 
-        :return: True to ensure the timer continues
-        """
-        if self.running:
-            if self.current_label_index != self.new_label_index:
-                # update textoverlay
-                self.current_label_index = self.new_label_index
-                label = self.tflite_get_label(self.current_label_index)
-                textoverlay = self.pipeline.get_by_name('tensor_res')
-                textoverlay.set_property('text', label)
-        return True
+    #def on_timer_update_result(self):
+    #    if self.running:
+    #        if self.current_label_index !=
+    
+    
 
     def set_window_title(self, name, title):
         """Set window title.
@@ -158,10 +196,12 @@ class NNStreamerExample :
 
         :return: True if successfully initialized
         """
+
         tf_model = "ssdlite_mobilenet_v2.pb"
         tf_label = "coco_labels_list.txt"
         current_folder = os.path.dirname(os.path.abspath(__file__))
         model_folder = os.path.join(current_folder,"tf_model")
+
 
         #check model file exists
         self.tf_model = os.path.join(model_folder,tf_model)
@@ -175,6 +215,7 @@ class NNStreamerExample :
             with open(label_path,'r') as label_file:
                 for line in label_file.readlines():
                     self.tf_labels.append(line)
+
         except FileNotFoundError:
             logging.error('cannot find tf label [%s]',label_path)
             return False
