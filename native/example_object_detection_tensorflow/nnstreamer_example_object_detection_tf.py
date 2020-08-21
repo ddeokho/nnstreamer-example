@@ -58,10 +58,11 @@ class NNStreamerExample :
         self.pipeline = Gst.parse_launch( 
              "v4l2src name=src ! videoconvert ! videoscale ! video/x-raw,width=640,height=480,format=RGB ! tee name=t_raw "
             "t_raw. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor "
-            "t_raw. ! queue leaky=2 max-size-buffers=2 ! videoscale ! tensor_converter ! "
-            "tensor_filter framework=tensorflow model="+self.tf_model+
-            " ! tensor_sink name=tensor_sink "   
+             
         )
+        #"t_raw. ! queue leaky=2 max-size-buffers=2 ! videoscale ! tensor_converter ! "
+        #    "tensor_filter framework=tensorflow model="+self.tf_model+
+        #    " ! tensor_sink name=tensor_sink "  
 
         #"t_raw. ! queue leaky=2 max-size-buffers=2 ! videoscale ! tensor_converter ! "
             #"tensor_filter framework=tensorflow model="+self.tf_model+ 
@@ -79,7 +80,7 @@ class NNStreamerExample :
 
         #tensor sink signal : new data callbaack
         tensor_sink = self.pipeline.get_by_name('tensor_sink')
-        tensor_sink.connect('new-data', self.new_data_cb)
+        #tensor_sink.connect('new-data', self.new_data_cb)
 
         #cario overlay
         cairo_overlay = self.pipeline.get_by_name('tensor_res')
@@ -88,7 +89,7 @@ class NNStreamerExample :
 
 
         #timer to update result
-        GObject.timeout_add(500, self.on_timer_update_result)
+        #GObject.timeout_add(500, self.on_timer_update_result)
 
 
         #start pipeline
@@ -137,7 +138,7 @@ class NNStreamerExample :
             logging.debug('[qos] format[%s] processed[%d] dropped[%d]', format_str, processed, dropped)
 
 
-    def draw_overlay_cb(self, _overlay, context, _timestamp, _duration, user_data):
+    def draw_overlay_cb(self, _overlay, context, _timestamp, _duration):
         context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
         context.set_font_size(40)
         context.move_to(100,100)
