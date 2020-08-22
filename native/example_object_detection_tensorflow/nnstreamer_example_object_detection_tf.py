@@ -3,11 +3,22 @@ import sys
 import logging
 import gi
 import cairo
+import numpy as np
 
 gi.require_version("Gst", "1.0")
 gi.require_foreign('cairo')
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gst, GObject
+
+
+VIDEO_WIDTH = 640
+VIDEO_HEIGHT = 480
+
+BOX_SIZE = 4
+LABEL_SIZE = 91
+DETECTION_MAX = 100
+
+MAX_OBJECT_DETECTION = 5
 
 
 class NNStreamerExample : 
@@ -31,6 +42,8 @@ class NNStreamerExample :
         self.detection_scores = 0.0
         self.detection_boxes = 0.0
 
+        self.detected_objects = []
+
         #drawing
         self.x = 0
         self.y = 0
@@ -38,6 +51,8 @@ class NNStreamerExample :
         self.height = 0
         self.class_id = 0
         self.prob = 0.0
+
+
     
         if not self.tf_init():
             raise Exception
@@ -45,6 +60,8 @@ class NNStreamerExample :
         GObject.threads_init()
         Gst.init(argv)
     
+
+
     def run_example(self):
         """Init pipline and run example 
         
@@ -55,23 +72,18 @@ class NNStreamerExample :
         self.loop = GObject.MainLoop()
 
         # init pipline
-        self.pipeline = Gst.parse_launch( 
+        self.pipeline = Gst.parse_launch(
              "v4l2src name=src ! videoconvert ! videoscale ! video/x-raw,width=640,height=480,format=RGB ! tee name=t_raw "
             "t_raw. ! queue ! videoconvert ! cairooverlay name=tensor_res ! ximagesink name=img_tensor "
             "t_raw. ! queue leaky=2 max-size-buffers=2 ! videoscale ! tensor_converter ! "
             "tensor_filter framework=tensorflow model="+self.tf_model+
-            " ! tensor_sink name=tensor_sink "             
+            " input=3:640:480:1 inputname=image_tensor inputtype=uint8 "
+            "output=1,100:1,100:1,4:100:1 "
+            "outputname=num_detections,detection_classes,detection_scores,detection_boxes "
+            "outputtype=float32,float32,float32,float32 ! "
+            "tensor_sink name=tensor_sink "             
         )
         
-
-        #"t_raw. ! queue leaky=2 max-size-buffers=2 ! videoscale ! tensor_converter ! "
-            #"tensor_filter framework=tensorflow model="+self.tf_model+ 
-            #"tensor_sink name=tensor_sink "
-        #"input=3:640:480:1 inputname=image_tensor inputtype=uint8 "
-        #"output=1,100:1,100:1,4:100:1 "
-        #"outputname=num_detections,detection_classes,detection_scores,detection_boxes "
-        #"outputtype=float32,float32,float32,float32 ! "
-       
 
         #bus and message callback
         bus = self.pipeline.get_bus()
@@ -111,13 +123,9 @@ class NNStreamerExample :
         bus.remove_signal_watch()
 
 
-    def on_bus_message(self, bus, message):
-        """Callback for message.
 
-        :param bus: pipeline bus
-        "param message: message from pipline
-        :return : None
-        """
+    def on_bus_message(self, bus, message):
+
         if message.type == Gst.MessageType.EOS:
             logging.info('received eos message')
             self.loop.quit()
@@ -138,43 +146,71 @@ class NNStreamerExample :
             logging.debug('[qos] format[%s] processed[%d] dropped[%d]', format_str, processed, dropped)
 
 
-    def draw_overlay_cb(self, _overlay, context, _timestamp, _duration):
-        context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        context.set_font_size(40)
-        context.move_to(100,100)
-        context.text_path('HELLO')
-        context.set_source_rgb(0.5, 0.5, 1)
-        context.fill_preserve()
-        context.set_source_rgb(0,0,0)
-        context.set_line_width(1)
-        context.stroke()
+
+    def get_detected_objects(self, num_detections, detection_classes, detection_scores, detection_boxes):
+
+        self.detected_objects.clear()
+        
+        print("========================================================")
+        print("                 Number Of Objects: "+num_detections[0])
+        print("========================================================")
+
+        for i in range(len(num_detections[0])):
+            if(i<int(num_detections[0])):
+
+                self.class_id = int(detection_classes[i])
+                self.x = int(detection_boxes[i * BOX_SIZE + 1] * VIDEO_WIDTH)
+                self.y = int(detection_boxes[i * BOX_SIZE]*VIDEO_HEIGHT)
+                self.width = int((detection_boxes[i * BOX_SIZE + 3] - detection_boxes[i * BOX_SIZE + 1]) * VIDEO_WIDTH)
+                self.height = int((detection_boxes[i * BOX_SIZE + 2] - detection_boxes[i * BOX_SIZE]) * VIDEO_HEIGHT)
+                self.prob = detection_scores[i]
 
 
-    
-    def new_data_cb(self, buffer):
-       
+                self.detected_objects.append(self.x, self.y, self.width, self.height, self.class_id, self.prob)
+
+            else :
+                break
+
+        
+        print("========================================================")
+
+
+
+    def new_data_cb(self, sink, buffer):
+        
+
         #num_detections
-        #mem_num = buffer.get_memory()
-        #result, info_num = mem_num.map(Gst.MapFlag.READ)
-        #if(info_num.size != 4):
-        #    self.num_detections=info_num.data
+        mem_num = buffer.get_memory(0)
+        result, info_num = mem_num.map(Gst.MapFlag.READ)
+        if(info_num.size == 4):
+            info_num.size = 4
+        self.num_detections=info_num.data
        
         #detection_classes
-        #mem_classes = gst
+        mem_classes = buffer.get_memory(1)
+        result, info_calsses = mem_classes.map(Gst.MapFlag.READ)
+        if(info_calsses == DETECTION_MAX * 4):
+            info_calsses = DETECTION_MAX * 4
+        self.detection_classes = info_calsses.data
 
-        if self.running:
-            for idx in range(buffer.n_memory()):
-                mem = buffer.peek_memory(idx)
-                result, mapinfo = mem.map(Gst.MapFlag.READ)
-                if result:
-                    self.update_top_label_index(mapinfo.data, mapinfo.size)
-                    mem.unmap(mapinfo)
+        #detection_score
+        mem_score = buffer.get_memory(2)
+        result, info_scores = mem_score.map(Gst.MapFlag.READ)
+        if(info_scores.size == DETECTION_MAX * 4):
+            info_scores.size = DETECTION_MAX * 4
+        self.detection_scores = info_scores.data
 
-    #def on_timer_update_result(self):
-    #    if self.running:
-    #        if self.current_label_index !=
-    
-    
+        #detection_bosxs
+        mem_boxes = buffer.get_memory(3)
+        result, info_boxs = mem_boxes.map(Gst.MapFlag.READ)
+        if(info_boxs == DETECTION_MAX * BOX_SIZE * 4):
+            info_boxs = DETECTION_MAX * BOX_SIZE * 4
+        self.detection_boxes = info_boxs.data
+
+
+        self.get_detected_objects(self.num_detections, self.detection_classes, self.detection_scores, self.detection_boxes)
+
+
 
     def set_window_title(self, name, title):
         """Set window title.
@@ -190,13 +226,78 @@ class NNStreamerExample :
                 tags = Gst.TagList.new_empty()
                 tags.add_value(Gst.TagMergeMode.APPEND, 'title', title)
                 pad.send_event(Gst.Event.new_tag(tags))
-            
+
+
+
+
+
+    def draw_overlay_cb(self, _overlay, context, _timestamp, _duration):
+        
+        
+        drawed = 0
+
+        detected = self.detected_objects
+        print(detected)
+
+        context.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        context.set_font_size(20)
+        
+        iter = range(detected[0])
+        for iter in range(len(detected)):
+            if(iter != detected[-1]):
+
+                self.new_label_index = -1
+
+                if data_size == len(self.tflite_labels):
+                    scores = [data[i] for i in range(data_size)]
+                    max_score = max(scores)
+                    if max_score > 0:
+                        self.new_label_index = scores.index(max_score)
+                else:
+                    logging.error('unexpected data size [%d]', data_size)
+
+                x = iter[0]
+                y = iter[1]
+                width = iter[2]
+                height = iter[3]
+                
+                #draw rectangle
+                context.rectangle(x,y,width, height)
+                context.set_source_rgb(1,0,0)
+                context.set_line_width(1)
+                context.stroke()
+                context.fill_preserve()
+
+
+                #draw title
+                context.move_to(x + 5, y + 25)
+                context.text_path(label)
+                context.set_source_rgb(1, 0, 0)
+                context.fill_preserve()
+                context.set_source_rgb(1, 1, 1)
+                context.set_line_width(0.3)
+                context.stroke()
+                context.fill_preserve()
+
+                
+                if drawed+1 >= MAX_OBJECT_DETECTION :
+                    break
+
+
+
+            else :
+                break
+
+        context.move_to(100,100)
+        context.text_path('HELLO')
+        context.set_source_rgb(0.5, 0.5, 1)
+        context.fill_preserve()
+        context.set_source_rgb(0,0,0)
+        context.set_line_width(1)
+        context.stroke()
+        
 
     def tf_init(self):
-        """Check tf model and load labels.
-
-        :return: True if successfully initialized
-        """
 
         tf_model = "ssdlite_mobilenet_v2.pb"
         tf_label = "coco_labels_list.txt"
@@ -207,7 +308,7 @@ class NNStreamerExample :
         #check model file exists
         self.tf_model = os.path.join(model_folder,tf_model)
         if not os.path.exists(self.tf_model):
-            logging.error('cannot find tf model [%s]', self.tf_model)
+            print('cannot find tf model [%s]', self.tf_model)
             return False
         
         #load labels
@@ -218,31 +319,11 @@ class NNStreamerExample :
                     self.tf_labels.append(line)
 
         except FileNotFoundError:
-            logging.error('cannot find tf label [%s]',label_path)
+            print('cannot find tf label [%s]',label_path)
             return False
         
-        logging.info('finished to load labels, total [%d]',len(self.tf_labels))
+        print('finished to load labels, total [%d]',len(self.tf_labels))
         return True
-
-
-    def update_top_label_index(self, data, data_size):
-        """Update tf label index with max score.
-
-        :param data: array of scores
-        :param data_size: data size
-        :return None
-        """
-
-        #-1 if failed to get max score index
-        self.new_label_index = -1
-
-        if data_size == len(self.tf_labels):
-            scores = [data[i] for i in range(data_size)]
-            max_score = max(scores)
-            if max_score > 0:
-                self.new_label_index = scores.index(max_score)
-        else:
-            logging.error('unexpected data size [%d]',data_size)
 
 
 if __name__ == '__main__':
