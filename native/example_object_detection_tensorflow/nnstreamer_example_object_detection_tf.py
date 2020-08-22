@@ -229,11 +229,9 @@ class NNStreamerExample :
 
 
 
-
-
     def draw_overlay_cb(self, _overlay, context, _timestamp, _duration):
         
-        
+ 
         drawed = 0
 
         detected = self.detected_objects
@@ -279,22 +277,13 @@ class NNStreamerExample :
                 context.stroke()
                 context.fill_preserve()
 
-                
-                if drawed+1 >= MAX_OBJECT_DETECTION :
+                if drawed >= MAX_OBJECT_DETECTION :
                     break
-
-
+                
+                drawed+1
 
             else :
                 break
-
-        context.move_to(100,100)
-        context.text_path('HELLO')
-        context.set_source_rgb(0.5, 0.5, 1)
-        context.fill_preserve()
-        context.set_source_rgb(0,0,0)
-        context.set_line_width(1)
-        context.stroke()
         
 
     def tf_init(self):
