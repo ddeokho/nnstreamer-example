@@ -95,7 +95,7 @@ class NNStreamerExample :
 
         #tensor sink signal : new data callbaack
         tensor_sink = self.pipeline.get_by_name('tensor_sink')
-        #tensor_sink.connect('new-data', self.new_data_cb)
+        tensor_sink.connect('new-data', self.new_data_cb)
 
         #cario overlay
         cairo_overlay = self.pipeline.get_by_name('tensor_res')
