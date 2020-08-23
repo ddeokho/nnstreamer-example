@@ -51,7 +51,10 @@ class NNStreamerExample :
         self.height = 0
         self.class_id = 0
         self.prob = 0.0
-
+        
+        #CairoOverlay
+        self.valid = False
+        self.vinfo = -1
 
     
         if not self.tf_init():
@@ -92,11 +95,11 @@ class NNStreamerExample :
 
         #tensor sink signal : new data callbaack
         tensor_sink = self.pipeline.get_by_name('tensor_sink')
-        tensor_sink.connect('new-data', self.new_data_cb)
+        #tensor_sink.connect('new-data', self.new_data_cb)
 
         #cario overlay
         cairo_overlay = self.pipeline.get_by_name('tensor_res')
-        cairo_overlay.connect('draw', self.draw_overlay_cb)
+        #cairo_overlay.connect('draw', self.draw_overlay_cb)
         #cario_overlay.connect('caps-change', self.prepare_overlay_cb)
 
 
@@ -149,14 +152,14 @@ class NNStreamerExample :
 
     def get_detected_objects(self, num_detections, detection_classes, detection_scores, detection_boxes):
 
-        self.detected_objects.clear()
+        #self.detected_objects.clear()
         
         print("========================================================")
         print("                 Number Of Objects: "+num_detections[0])
         print("========================================================")
 
         for i in range(len(num_detections[0])):
-            if(i<int(num_detections[0])):
+            if(i<num_detections[0]):
 
                 self.class_id = int(detection_classes[i])
                 self.x = int(detection_boxes[i * BOX_SIZE + 1] * VIDEO_WIDTH)
@@ -166,7 +169,7 @@ class NNStreamerExample :
                 self.prob = detection_scores[i]
 
 
-                self.detected_objects.append(self.x, self.y, self.width, self.height, self.class_id, self.prob)
+                self.detected_objects.append(num_detections[i], detection_classes[i], detection_scores[i], detection_boxes[i], self.x, self.y, self.width, self.height, self.class_id, self.prob)
 
             else :
                 break
@@ -181,28 +184,28 @@ class NNStreamerExample :
 
         #num_detections
         mem_num = buffer.get_memory(0)
-        result, info_num = mem_num.map(Gst.MapFlag.READ)
+        result, info_num = mem_num.map(Gst.MapFlags.READ)
         if(info_num.size == 4):
             info_num.size = 4
         self.num_detections=info_num.data
        
         #detection_classes
         mem_classes = buffer.get_memory(1)
-        result, info_calsses = mem_classes.map(Gst.MapFlag.READ)
+        result, info_calsses = mem_classes.map(Gst.MapFlags.READ)
         if(info_calsses == DETECTION_MAX * 4):
             info_calsses = DETECTION_MAX * 4
         self.detection_classes = info_calsses.data
 
         #detection_score
         mem_score = buffer.get_memory(2)
-        result, info_scores = mem_score.map(Gst.MapFlag.READ)
+        result, info_scores = mem_score.map(Gst.MapFlags.READ)
         if(info_scores.size == DETECTION_MAX * 4):
             info_scores.size = DETECTION_MAX * 4
         self.detection_scores = info_scores.data
 
         #detection_bosxs
         mem_boxes = buffer.get_memory(3)
-        result, info_boxs = mem_boxes.map(Gst.MapFlag.READ)
+        result, info_boxs = mem_boxes.map(Gst.MapFlags.READ)
         if(info_boxs == DETECTION_MAX * BOX_SIZE * 4):
             info_boxs = DETECTION_MAX * BOX_SIZE * 4
         self.detection_boxes = info_boxs.data
@@ -243,16 +246,6 @@ class NNStreamerExample :
         iter = range(detected[0])
         for iter in range(len(detected)):
             if(iter != detected[-1]):
-
-                self.new_label_index = -1
-
-                if data_size == len(self.tflite_labels):
-                    scores = [data[i] for i in range(data_size)]
-                    max_score = max(scores)
-                    if max_score > 0:
-                        self.new_label_index = scores.index(max_score)
-                else:
-                    logging.error('unexpected data size [%d]', data_size)
 
                 x = iter[0]
                 y = iter[1]
