@@ -83,7 +83,7 @@ class NNStreamerExample :
             "output=1,100:1,100:1,4:100:1 "
             "outputname=num_detections,detection_classes,detection_scores,detection_boxes "
             "outputtype=float32,float32,float32,float32 ! "
-            "tensor_sink name=tensor_sink "             
+            "tensor_sink name=tensor_sink " 
         )
 
         #bus and message callback
@@ -124,7 +124,6 @@ class NNStreamerExample :
         bus.remove_signal_watch()
 
 
-
     def on_bus_message(self, bus, message):
 
         if message.type == Gst.MessageType.EOS:
@@ -150,7 +149,7 @@ class NNStreamerExample :
 
     def get_detected_objects(self, num_detections, detection_classes, detection_scores, detection_boxes):
 
-        #self.detected_objects.clear()
+        self.detected_objects=[]
         
         print("========================================================")
         print("                 Number Of Objects: "+num_detections[0])
@@ -161,15 +160,21 @@ class NNStreamerExample :
 
                 self.class_id = detection_classes[i]
                 self.x = detection_boxes[i * BOX_SIZE + 1] * VIDEO_WIDTH
-                self.y = detection_boxes[i * BOX_SIZE]* VIDEO_HEIGHT
+                self.y = detection_boxes[i * BOX_SIZE] * VIDEO_HEIGHT
+
+                print("=====")
+                print(detection_boxes)
+                print("=====")
+
 
                 self.width = (detection_boxes[i * BOX_SIZE + 3] - detection_boxes[i * BOX_SIZE + 1]) * VIDEO_WIDTH
                 self.height = (detection_boxes[i * BOX_SIZE + 2] - detection_boxes[i * BOX_SIZE]) * VIDEO_HEIGHT
                 self.prob = detection_scores[i]
 
-                
 
                 self.detected_objects.append(num_detections[i], detection_classes[i], detection_scores[i], detection_boxes[i], self.x, self.y, self.width, self.height, self.class_id, self.prob)
+
+                
 
             else :
                 break
@@ -179,29 +184,39 @@ class NNStreamerExample :
 
 
     def new_data_cb(self, sink, buffer):
+    
+        if(self.running == False):
+            self.loop.quit()
+
+        assert buffer.n_memory() == 4
         
         #num_detections
         mem_num = buffer.get_memory(0)
+        assert mem_num.map(Gst.MapFlags.READ)
         _, info_num = mem_num.map(Gst.MapFlags.READ)
         assert info_num.size == 4
         self.num_detections=info_num.data
-       
+
+
         #detection_classes
         mem_classes = buffer.get_memory(1)
+        assert mem_classes.map(Gst.MapFlags.READ)
         _, info_calsses = mem_classes.map(Gst.MapFlags.READ)
-        assert info_calsses == DETECTION_MAX * 4
+        assert info_calsses.size == DETECTION_MAX * 4
         self.detection_classes = info_calsses.data
 
         #detection_score
         mem_score = buffer.get_memory(2)
+        assert mem_score.map(Gst.MapFlags.READ)
         _, info_scores = mem_score.map(Gst.MapFlags.READ)
         assert info_scores.size == DETECTION_MAX * 4
         self.detection_scores = info_scores.data
 
         #detection_bosxs
         mem_boxes = buffer.get_memory(3)
+        assert mem_boxes.map(Gst.MapFlags.READ)
         _, info_boxs = mem_boxes.map(Gst.MapFlags.READ)
-        assert info_boxs == DETECTION_MAX * BOX_SIZE * 4
+        assert info_boxs.size == DETECTION_MAX * BOX_SIZE * 4
         self.detection_boxes = info_boxs.data
 
 
