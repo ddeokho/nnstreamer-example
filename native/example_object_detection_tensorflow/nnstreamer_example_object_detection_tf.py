@@ -20,10 +20,9 @@ DETECTION_MAX = 100
 
 MAX_OBJECT_DETECTION = 5
 
-
 class NNStreamerExample : 
     """NNStreamer example for object dectection"""
- 
+
     def __init__(self, argv=None):
         self.loop = None
         self.pipeline = None
@@ -86,7 +85,6 @@ class NNStreamerExample :
             "outputtype=float32,float32,float32,float32 ! "
             "tensor_sink name=tensor_sink "             
         )
-        
 
         #bus and message callback
         bus = self.pipeline.get_bus()
@@ -161,19 +159,20 @@ class NNStreamerExample :
         for i in range(len(num_detections[0])):
             if(i<num_detections[0]):
 
-                self.class_id = int(detection_classes[i])
-                self.x = int(detection_boxes[i * BOX_SIZE + 1] * VIDEO_WIDTH)
-                self.y = int(detection_boxes[i * BOX_SIZE]*VIDEO_HEIGHT)
-                self.width = int((detection_boxes[i * BOX_SIZE + 3] - detection_boxes[i * BOX_SIZE + 1]) * VIDEO_WIDTH)
-                self.height = int((detection_boxes[i * BOX_SIZE + 2] - detection_boxes[i * BOX_SIZE]) * VIDEO_HEIGHT)
+                self.class_id = detection_classes[i]
+                self.x = detection_boxes[i * BOX_SIZE + 1] * VIDEO_WIDTH
+                self.y = detection_boxes[i * BOX_SIZE]* VIDEO_HEIGHT
+
+                self.width = (detection_boxes[i * BOX_SIZE + 3] - detection_boxes[i * BOX_SIZE + 1]) * VIDEO_WIDTH
+                self.height = (detection_boxes[i * BOX_SIZE + 2] - detection_boxes[i * BOX_SIZE]) * VIDEO_HEIGHT
                 self.prob = detection_scores[i]
 
+                
 
                 self.detected_objects.append(num_detections[i], detection_classes[i], detection_scores[i], detection_boxes[i], self.x, self.y, self.width, self.height, self.class_id, self.prob)
 
             else :
                 break
-
         
         print("========================================================")
 
@@ -181,33 +180,28 @@ class NNStreamerExample :
 
     def new_data_cb(self, sink, buffer):
         
-
         #num_detections
         mem_num = buffer.get_memory(0)
-        result, info_num = mem_num.map(Gst.MapFlags.READ)
-        if(info_num.size == 4):
-            info_num.size = 4
+        _, info_num = mem_num.map(Gst.MapFlags.READ)
+        assert info_num.size == 4
         self.num_detections=info_num.data
        
         #detection_classes
         mem_classes = buffer.get_memory(1)
-        result, info_calsses = mem_classes.map(Gst.MapFlags.READ)
-        if(info_calsses == DETECTION_MAX * 4):
-            info_calsses = DETECTION_MAX * 4
+        _, info_calsses = mem_classes.map(Gst.MapFlags.READ)
+        assert info_calsses == DETECTION_MAX * 4
         self.detection_classes = info_calsses.data
 
         #detection_score
         mem_score = buffer.get_memory(2)
-        result, info_scores = mem_score.map(Gst.MapFlags.READ)
-        if(info_scores.size == DETECTION_MAX * 4):
-            info_scores.size = DETECTION_MAX * 4
+        _, info_scores = mem_score.map(Gst.MapFlags.READ)
+        assert info_scores.size == DETECTION_MAX * 4
         self.detection_scores = info_scores.data
 
         #detection_bosxs
         mem_boxes = buffer.get_memory(3)
-        result, info_boxs = mem_boxes.map(Gst.MapFlags.READ)
-        if(info_boxs == DETECTION_MAX * BOX_SIZE * 4):
-            info_boxs = DETECTION_MAX * BOX_SIZE * 4
+        _, info_boxs = mem_boxes.map(Gst.MapFlags.READ)
+        assert info_boxs == DETECTION_MAX * BOX_SIZE * 4
         self.detection_boxes = info_boxs.data
 
 
